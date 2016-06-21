@@ -1,4 +1,3 @@
-from pipes.pipeline import Collector
 from pipes import Pipeline
 
 
@@ -19,7 +18,9 @@ def test_simple_sequence():
             return factor * number
         return _mul
 
-    collector = Collector()
+    result = []
+    def append(val):
+        result.append(val)
 
     p = Pipeline(
         mapping={
@@ -27,17 +28,25 @@ def test_simple_sequence():
             'mul': mul(2),
             'inc': lambda x: x + 1,
             'sum': lambda x, y: x + y,
-            'collect': collector,
+            'append': append,
         },
         dag=(
             ('emit', 'mul', 'inc'),
             ('mul', 'sum'),
             ('inc', 'sum'),
-            ('sum', 'collect'),
+            ('sum', 'append'),
         )
     )
 
-    p.run()
+    p.step()
+    assert result.pop() == 4
 
-    assert collector.results == [4, 7, 10, 13]
+    p.step()
+    assert result.pop() == 7
+
+    p.step()
+    assert result.pop() == 10
+
+    p.step()
+    assert result.pop() == 13
 

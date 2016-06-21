@@ -2,15 +2,6 @@ import inspect
 from collections import Iterable, defaultdict
 
 
-class Collector:
-
-    def __init__(self):
-        self.results = []
-
-    def __call__(self, result):
-        self.results.append(result)
-
-
 NO_VAL = object()
 
 
@@ -22,13 +13,6 @@ class Pipeline:
                         for name, func in self.mapping.items()}
         self.dag = dag
         self.partials = defaultdict(list)
-
-    def run(self, arg=NO_VAL):
-        while True:
-            try:
-                self.step()
-            except StopIteration:
-                return
 
     def step(self, arg=NO_VAL):
         return self._step(self.dag[0], arg)
