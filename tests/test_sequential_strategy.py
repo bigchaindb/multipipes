@@ -1,22 +1,16 @@
 from pipes import Pipeline
 
 
+def emit():
+    i = 0
+    def _emit():
+        nonlocal i
+        i += 1
+        return i
+    return _emit
+
+
 def test_simple_sequence():
-
-    def emit(amount):
-        i = 0
-        def _emit():
-            nonlocal i
-            if i < amount:
-                i += 1
-                return i
-            raise StopIteration()
-        return _emit
-
-    def mul(factor):
-        def _mul(number):
-            return factor * number
-        return _mul
 
     result = []
     def append(val):
@@ -24,29 +18,29 @@ def test_simple_sequence():
 
     p = Pipeline(
         mapping={
-            'emit': emit(4),
-            'mul': mul(2),
+            'emit': emit(),
+            'pow': lambda x: x**2,
             'inc': lambda x: x + 1,
             'sum': lambda x, y: x + y,
             'append': append,
         },
         dag=(
-            ('emit', 'mul', 'inc'),
-            ('mul', 'sum'),
+            ('emit', 'pow', 'inc'),
+            ('pow', 'sum'),
             ('inc', 'sum'),
             ('sum', 'append'),
         )
     )
 
     p.step()
-    assert result.pop() == 4
+    assert result.pop() == 3
 
     p.step()
     assert result.pop() == 7
 
     p.step()
-    assert result.pop() == 10
+    assert result.pop() == 13
 
     p.step()
-    assert result.pop() == 13
+    assert result.pop() == 21
 
