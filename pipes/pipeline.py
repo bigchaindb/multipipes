@@ -1,5 +1,5 @@
 import inspect
-from collections import Iterable, defaultdict
+from collections import Iterable, defaultdict, OrderedDict
 
 
 NO_VAL = object()
@@ -11,14 +11,15 @@ class Pipeline:
         self.mapping = mapping
         self.argsnum = {name: len(inspect.signature(func).parameters)
                         for name, func in self.mapping.items()}
-        self.dag = dag
+        self.start = dag[0][0]
+        self.dag = OrderedDict((head, tail) for head, *tail in dag)
         self.partials = defaultdict(list)
 
     def step(self, arg=NO_VAL):
-        return self._step(self.dag[0], arg)
+        head, tail = self.start, self.dag[self.start]
+        return self._step(head, tail, arg)
 
-    def _step(self, entry, arg=NO_VAL):
-        head, *tail = entry
+    def _step(self, head, tail, arg=NO_VAL):
         args = self.partials[head]
         argsnum = self.argsnum[head]
 
@@ -31,11 +32,6 @@ class Pipeline:
         result = self.mapping[head](*args)
         args.clear()
 
-        for element in tail:
-            for row in self.dag:
-                if row[0] == element:
-                    self._step(row, result)
-                    break
-            else:
-                self._step([element], result)
+        for node in tail:
+            self._step(node, self.dag.get(node, []), result)
 
