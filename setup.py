@@ -17,7 +17,6 @@ tests_require = [
     'pytest',
     'pytest-cov',
     'pytest-xdist',
-    'pytest-flask',
 ]
 
 dev_require = [
