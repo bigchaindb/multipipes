@@ -34,3 +34,6 @@ def test_target_iterator_func_is_called():
     assert queue_out.get() == 10
     assert queue_out.get() == 11
 
+
+def test_process_with_pool():
+    pass

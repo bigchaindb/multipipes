@@ -1,1 +1,1 @@
-from .pipeline import Pipeline, MultiprocessPipeline
+from .pipeline import Pipeline, Node

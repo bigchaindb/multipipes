@@ -1,55 +1,46 @@
+import os
 import types
+import math
 import multiprocessing as mp
-import inspect
-from collections import defaultdict, OrderedDict
 
 
-NO_VAL = object()
-STOP = object()
+class Node:
+    def __init__(self, target, name=None,
+                 number_of_processes=None,
+                 fraction_of_cores=None):
+        self.target = target
+        self.name = name if name else self.target.__name__
 
+        if (number_of_processes and number_of_processes <= 0) or\
+           (fraction_of_cores and fraction_of_cores <= 0):
+            raise ValueError('Cannot assign zero or less cores')
 
-class Pipeline:
+        if number_of_processes is not None and fraction_of_cores is not None:
+            raise ValueError('number_of_processes and fraction_of_cores '
+                             'are exclusive parameters and cannot be '
+                             'used together')
 
-    def __init__(self, mapping, dag):
-        self.mapping = mapping
-        self.argsnum = {name: len(inspect.signature(func).parameters)
-                        for name, func in self.mapping.items()}
-        self.entry_node = dag[0][0]
-        self.dag = OrderedDict((head, tail) for head, *tail in dag)
-        self.partials = defaultdict(list)
-
-    def step(self, arg=NO_VAL):
-        head, tail = self.entry_node, self.dag[self.entry_node]
-        return self._step(head, tail, arg)
-
-    def _step(self, head, tail, arg=NO_VAL):
-        args = self.partials[head]
-        argsnum = self.argsnum[head]
-
-        if arg is not NO_VAL:
-            args.append(arg)
-
-        if len(args) < argsnum:
-            return
-
-        result = self.mapping[head](*args)
-        args.clear()
-
-        for node in tail:
-            self._step(node, self.dag.get(node, []), result)
+        if fraction_of_cores:
+            # math.ceil makes sure we have at least one process running
+            self.number_of_processes = math.ceil(mp.cpu_count() *
+                                                 fraction_of_cores)
+        elif number_of_processes:
+            self.number_of_processes = number_of_processes
+        else:
+            self.number_of_processes = 1
 
 
 class ProcessNode:
 
-    def __init__(self, name, target, queues_in=None, queues_out=None):
-        self.name = name
+    def __init__(self, target, name=None, inqueue=None, outqueue=None):
         self.target = target
-        self.queues_in = queues_in if queues_in else []
-        self.queues_out = queues_out if queues_out else []
+        self.name = name
+        self.inqueue = inqueue
+        self.outqueue = outqueue
         self.process = mp.Process(target=self.run_forever)
 
     def log(self, *args):
-        print('{}> '.format(self.name), *args)
+        print('[{}] {}> '.format(os.getpid(), self.name), *args)
 
     def start(self):
         self.process.start()
@@ -62,53 +53,71 @@ class ProcessNode:
             pass
 
     def run(self):
-        args = [queue_in.get() for queue_in in self.queues_in]
-        self.log('recv', args)
+        args = self.inqueue.get() if self.inqueue else ()
+        if not isinstance(args, tuple):
+            args = (args, )
+
+        self.log('recv')
+        # self.log('recv', args)
 
         result = self.target(*args)
 
-        self.log('send', result)
-        if isinstance(result, types.GeneratorType):
-            for item in result:
-                for queue_out in self.queues_out:
-                    queue_out.put(item)
-        else:
-            for queue_out in self.queues_out:
-                queue_out.put(result)
+        # self.log('send', result)
+        # self.log('----\n\n')
+
+        if result is not None and self.outqueue:
+            if isinstance(result, types.GeneratorType):
+                for item in result:
+                    self.outqueue.put(item)
+            else:
+                self.outqueue.put(result)
 
 
-class MultiprocessPipeline(Pipeline):
+class Pipeline:
 
-    def __init__(self, mapping, dag):
-        super().__init__(mapping, dag)
-        self.procs = {}
-        self.queues_in = defaultdict(list)
-        self.queues_out = defaultdict(list)
+    def __init__(self, nodes, inqueue=None):
+        self.inqueue = inqueue
+        self.nodes = []
+
+        for node in nodes:
+            if not isinstance(node, Node):
+                node = Node(node)
+            self.nodes.append(node)
+
+        self.procs = []
+
+        self.setup()
+
+    def create_node(self, node, inqueue, outqueue):
+        processes = []
+        for i in range(node.number_of_processes):
+            process_node = ProcessNode(target=node.target,
+                                       name=node.name,
+                                       inqueue=inqueue,
+                                       outqueue=outqueue)
+            processes.append(process_node)
+        return processes
+
+    def create_queue(self):
+        return mp.Queue()
+
+    def setup(self):
+        inqueue = self.inqueue
+
+        for i, node in enumerate(self.nodes):
+            if i == len(self.nodes):
+                outqueue = None
+            else:
+                outqueue = self.create_queue()
+
+            self.procs.extend(self.create_node(node, inqueue, outqueue))
+
+            inqueue = outqueue
+
+    def step(self):
+        for process in self.procs:
+            process.run()
 
     def start(self):
-        self.create_edges(self.entry_node, visited=set())
-        self.create_nodes()
-        for node, process in self.procs.items():
+        for process in self.procs:
             process.start()
-
-    def create_nodes(self):
-        for node, func in self.mapping.items():
-            self.procs[node] = ProcessNode(name=node,
-                                           target=func,
-                                           queues_in=self.queues_in[node],
-                                           queues_out=self.queues_out[node])
-
-    def create_edges(self, node, visited, queue_in=None):
-        queues_in = self.queues_in[node]
-        queues_out = self.queues_out[node]
-
-        if queue_in:
-            queues_in.append(queue_in)
-
-        for next_node in self.dag.get(node, []):
-            if (node, next_node) not in visited:
-                visited.add((node, next_node))
-                queue_out = mp.Queue()
-                self.create_edges(next_node, visited, queue_out)
-                queues_out.append(queue_out)
-
