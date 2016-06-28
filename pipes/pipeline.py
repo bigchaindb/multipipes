@@ -1,14 +1,18 @@
 import os
 import types
 import math
+import queue
+from inspect import signature
 import multiprocessing as mp
 
 
 class Node:
     def __init__(self, target, name=None,
+                 timeout=None,
                  number_of_processes=None,
                  fraction_of_cores=None):
         self.target = target
+        self.timeout = timeout
         self.name = name if name else self.target.__name__
 
         if (number_of_processes and number_of_processes <= 0) or\
@@ -32,8 +36,11 @@ class Node:
 
 class ProcessNode:
 
-    def __init__(self, target, name=None, inqueue=None, outqueue=None):
+    def __init__(self, target, timeout=None,
+                 name=None, inqueue=None, outqueue=None):
         self.target = target
+        self.timeout = timeout
+        self.accept_timeout = 'timeout' in signature(target).parameters
         self.name = name
         self.inqueue = inqueue
         self.outqueue = outqueue
@@ -53,14 +60,27 @@ class ProcessNode:
             pass
 
     def run(self):
-        args = self.inqueue.get() if self.inqueue else ()
+        kwargs = {'timeout': False}
+
+        if self.inqueue:
+            try:
+                args = self.inqueue.get(timeout=self.timeout)
+            except queue.Empty:
+                args = None
+                kwargs['timeout'] = True
+        else:
+            args = ()
+
         if not isinstance(args, tuple):
             args = (args, )
+
+        if not self.accept_timeout:
+            del kwargs['timeout']
 
         self.log('recv')
         # self.log('recv', args)
 
-        result = self.target(*args)
+        result = self.target(*args, **kwargs)
 
         # self.log('send', result)
         # self.log('----\n\n')
@@ -93,6 +113,7 @@ class Pipeline:
         for i in range(node.number_of_processes):
             process_node = ProcessNode(target=node.target,
                                        name=node.name,
+                                       timeout=node.timeout,
                                        inqueue=inqueue,
                                        outqueue=outqueue)
             processes.append(process_node)
