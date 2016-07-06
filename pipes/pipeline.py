@@ -6,14 +6,22 @@ from inspect import signature
 import multiprocessing as mp
 
 
+def pass_through(val):
+    return val
+
+
 class Node:
-    def __init__(self, target, name=None,
-                 timeout=None,
-                 number_of_processes=None,
+
+    def __init__(self, target=None, name=None, inqueue=None, outqueue=None,
+                 timeout=None, number_of_processes=None,
                  fraction_of_cores=None):
-        self.target = target
+
+        self.target = target if target else pass_through
         self.timeout = timeout
-        self.name = name if name else self.target.__name__
+        self.accept_timeout = 'timeout' in signature(self.target).parameters
+        self.name = name if name else target.__name__
+        self.inqueue = inqueue
+        self.outqueue = outqueue
 
         if (number_of_processes and number_of_processes <= 0) or\
            (fraction_of_cores and fraction_of_cores <= 0):
@@ -33,31 +41,25 @@ class Node:
         else:
             self.number_of_processes = 1
 
-
-class ProcessNode:
-
-    def __init__(self, target, timeout=None,
-                 name=None, inqueue=None, outqueue=None):
-        self.target = target
-        self.timeout = timeout
-        self.accept_timeout = 'timeout' in signature(target).parameters
-        self.name = name
-        self.inqueue = inqueue
-        self.outqueue = outqueue
-        self.process = mp.Process(target=self.run_forever)
+        self.processes = [mp.Process(target=self.safe_run_forever)
+                          for i in range(self.number_of_processes)]
 
     def log(self, *args):
         print('[{}] {}> '.format(os.getpid(), self.name), *args)
 
     def start(self):
-        self.process.start()
+        for process in self.processes:
+            process.start()
 
-    def run_forever(self):
+    def safe_run_forever(self):
         try:
-            while True:
-                self.run()
+            self.run_forever()
         except KeyboardInterrupt:
             pass
+
+    def run_forever(self):
+        while True:
+            self.run()
 
     def run(self):
         kwargs = {'timeout': False}
@@ -101,28 +103,15 @@ class Pipeline:
 
         for node in nodes:
             if not isinstance(node, Node):
-                node = Node(node)
+                node = Node(target=node)
             self.nodes.append(node)
 
-        self.procs = []
-
-        self.setup()
-
-    def create_node(self, node, inqueue, outqueue):
-        processes = []
-        for i in range(node.number_of_processes):
-            process_node = ProcessNode(target=node.target,
-                                       name=node.name,
-                                       timeout=node.timeout,
-                                       inqueue=inqueue,
-                                       outqueue=outqueue)
-            processes.append(process_node)
-        return processes
+        self.connect()
 
     def create_queue(self):
         return mp.Queue()
 
-    def setup(self):
+    def connect(self):
         inqueue = self.inqueue
 
         for i, node in enumerate(self.nodes):
@@ -131,14 +120,16 @@ class Pipeline:
             else:
                 outqueue = self.create_queue()
 
-            self.procs.extend(self.create_node(node, inqueue, outqueue))
+            node.inqueue = inqueue
+            node.outqueue = outqueue
 
             inqueue = outqueue
 
     def step(self):
-        for process in self.procs:
-            process.run()
+        for node in self.nodes:
+            node.run()
 
     def start(self):
-        for process in self.procs:
-            process.start()
+        for node in self.nodes:
+            node.start()
+
