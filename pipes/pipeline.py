@@ -95,35 +95,44 @@ class Node:
                 self.outqueue.put(result)
 
 
+class Pipe:
+    def __init__(self, maxsize=None):
+        self.maxsize = maxsize
+
+
 class Pipeline:
 
-    def __init__(self, nodes, inqueue=None):
+    def __init__(self, items, inqueue=None):
         self.inqueue = inqueue
-        self.nodes = []
+        self.items = items
+        self.nodes = [item for item in items if isinstance(item, Node)]
+        self.connect(self.items, pipe=inqueue if inqueue else False)
 
-        for node in nodes:
-            if not isinstance(node, Node):
-                node = Node(target=node)
-            self.nodes.append(node)
+    def create_pipe(self, pipe=None):
+        if not pipe:
+            queue = mp.Queue()
+        else:
+            queue = mp.Queue(maxsize=pipe.maxsize)
+        return queue
 
-        self.connect()
+    def connect(self, rest, pipe=None):
+        if not rest:
+            return
 
-    def create_queue(self):
-        return mp.Queue()
+        head, *tail = rest
 
-    def connect(self):
-        inqueue = self.inqueue
+        if isinstance(head, Pipe):
+            if pipe is not None:
+                raise ValueError('Cannot have two or more pipes next'
+                                 ' to each other.')
+            return self.connect(tail, pipe=head)
 
-        for i, node in enumerate(self.nodes):
-            if i == len(self.nodes):
-                outqueue = None
-            else:
-                outqueue = self.create_queue()
-
-            node.inqueue = inqueue
-            node.outqueue = outqueue
-
-            inqueue = outqueue
+        elif isinstance(head, Node):
+            if pipe is not False:
+                pipe = self.create_pipe(pipe)
+            head.inqueue = pipe
+            head.outqueue = self.connect(tail)
+            return head.inqueue
 
     def step(self):
         for node in self.nodes:

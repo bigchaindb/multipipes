@@ -1,1 +1,1 @@
-from .pipeline import Pipeline, Node
+from .pipeline import Pipeline, Node, Pipe

@@ -1,5 +1,5 @@
 from itertools import count
-from pipes import Pipeline
+from pipes import Pipeline, Node
 
 
 def emit():
@@ -12,16 +12,15 @@ def emit():
 
 
 def test_step():
-
     result = []
 
     def append(val):
         result.append(val)
 
     p = Pipeline([
-        emit(),
-        lambda x: x**2,
-        append
+        Node(emit()),
+        Node(lambda x: x**2),
+        Node(append)
     ])
 
     p.step()
