@@ -1,9 +1,20 @@
 import os
 import types
 import math
-import queue
 from inspect import signature
 import multiprocessing as mp
+from multiprocessing import queues
+
+
+POISON_PILL = 'POISON_PILL'
+
+
+class PoisonPillException(Exception):
+    pass
+
+
+def Pipe(maxsize=0):
+    return queues.Queue(maxsize, ctx=mp.get_context())
 
 
 def pass_through(val):
@@ -12,8 +23,8 @@ def pass_through(val):
 
 class Node:
 
-    def __init__(self, target=None, name=None, inqueue=None, outqueue=None,
-                 timeout=None, number_of_processes=None,
+    def __init__(self, target=None, inqueue=None, outqueue=None,
+                 name=None, timeout=None, number_of_processes=None,
                  fraction_of_cores=None):
 
         self.target = target if target else pass_through
@@ -59,7 +70,10 @@ class Node:
 
     def run_forever(self):
         while True:
-            self.run()
+            try:
+                self.run()
+            except PoisonPillException:
+                return
 
     def run(self):
         kwargs = {'timeout': False}
@@ -67,7 +81,9 @@ class Node:
         if self.inqueue:
             try:
                 args = self.inqueue.get(timeout=self.timeout)
-            except queue.Empty:
+                if args == POISON_PILL:
+                    raise PoisonPillException()
+            except queues.Empty:
                 args = None
                 kwargs['timeout'] = True
         else:
@@ -80,12 +96,12 @@ class Node:
             del kwargs['timeout']
 
         self.log('recv')
-        # self.log('recv', args)
+        self.log('recv', args)
 
         result = self.target(*args, **kwargs)
 
-        # self.log('send', result)
-        # self.log('----\n\n')
+        self.log('send', result)
+        self.log('----\n\n')
 
         if result is not None and self.outqueue:
             if isinstance(result, types.GeneratorType):
@@ -94,26 +110,29 @@ class Node:
             else:
                 self.outqueue.put(result)
 
+    def join(self):
+        for process in self.processes:
+            process.join()
 
-class Pipe:
-    def __init__(self, maxsize=None):
-        self.maxsize = maxsize
+    def terminate(self):
+        for process in self.processes:
+            process.terminate()
+
+    def poison_pill(self):
+        for i in range(self.number_of_processes):
+            self.inqueue.put(POISON_PILL)
+
+    def is_alive(self):
+        return any(process.is_alive() for process in self.processes)
 
 
 class Pipeline:
 
-    def __init__(self, items, inqueue=None):
-        self.inqueue = inqueue
+    def __init__(self, items, pipe=None):
+        self.pipe = pipe
         self.items = items
         self.nodes = [item for item in items if isinstance(item, Node)]
-        self.connect(self.items, pipe=inqueue if inqueue else False)
-
-    def create_pipe(self, pipe=None):
-        if not pipe:
-            queue = mp.Queue()
-        else:
-            queue = mp.Queue(maxsize=pipe.maxsize)
-        return queue
+        self.connect(self.items, pipe=pipe if pipe else False)
 
     def connect(self, rest, pipe=None):
         if not rest:
@@ -121,15 +140,15 @@ class Pipeline:
 
         head, *tail = rest
 
-        if isinstance(head, Pipe):
+        if isinstance(head, queues.Queue):
             if pipe is not None:
                 raise ValueError('Cannot have two or more pipes next'
                                  ' to each other.')
             return self.connect(tail, pipe=head)
 
         elif isinstance(head, Node):
-            if pipe is not False:
-                pipe = self.create_pipe(pipe)
+            if pipe is None:
+                pipe = Pipe()
             head.inqueue = pipe
             head.outqueue = self.connect(tail)
             return head.inqueue
@@ -141,4 +160,15 @@ class Pipeline:
     def start(self):
         for node in self.nodes:
             node.start()
+
+    def join(self):
+        for node in self.nodes:
+            node.join()
+
+    def poison_pill(self):
+        for node in self.nodes:
+            node.poison_pill()
+
+    def is_alive(self):
+        return any(node.is_alive() for node in self.nodes)
 
