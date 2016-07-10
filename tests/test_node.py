@@ -74,3 +74,24 @@ def test_poison_pill():
     node.join()
     assert node.is_alive() is False
 
+
+def test_poison_pill_triggers_a_timeout():
+    inqueue = mp.Queue()
+    outqueue = mp.Queue()
+
+    def double(val, timeout=None):
+        if timeout:
+            return 'TIMEOUT'
+        return val * 2
+
+    node = Node(double, inqueue, outqueue, timeout=1)
+    node.start()
+
+    inqueue.put(2)
+
+    assert outqueue.get() == 4
+
+    node.poison_pill()
+    node.join()
+    assert node.is_alive() is False
+    assert outqueue.get() == 'TIMEOUT'

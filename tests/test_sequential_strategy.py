@@ -1,5 +1,6 @@
 from itertools import count
-from pipes import Pipeline, Node
+
+from pipes import Pipeline, Node, Pipe
 
 
 def emit():
@@ -36,3 +37,4 @@ def test_step():
     p.step()
     p.step()
     assert result == [0, 1, 4, 9, 16, 25]
+

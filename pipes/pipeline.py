@@ -76,32 +76,36 @@ class Node:
                 return
 
     def run(self):
-        kwargs = {'timeout': False}
+        args = ()
+        poisoned = False
+        timeout = False
 
         if self.inqueue:
             try:
                 args = self.inqueue.get(timeout=self.timeout)
                 if args == POISON_PILL:
-                    raise PoisonPillException()
+                    poisoned = True
+                    raise queues.Empty()
             except queues.Empty:
-                args = None
-                kwargs['timeout'] = True
-        else:
-            args = ()
+                timeout = True
+
+        # self.log('recv', args)
 
         if not isinstance(args, tuple):
             args = (args, )
 
-        if not self.accept_timeout:
-            del kwargs['timeout']
+        if timeout:
+            if self.accept_timeout:
+                # FIXME: the number of arguments depends on the
+                #        function signature.
+                args = (None, )
+                result = self.target(*args, timeout=timeout)
+            else:
+                result = None
+        else:
+            result = self.target(*args)
 
-        self.log('recv')
-        self.log('recv', args)
-
-        result = self.target(*args, **kwargs)
-
-        self.log('send', result)
-        self.log('----\n\n')
+        # self.log('send', result)
 
         if result is not None and self.outqueue:
             if isinstance(result, types.GeneratorType):
@@ -109,6 +113,9 @@ class Node:
                     self.outqueue.put(item)
             else:
                 self.outqueue.put(result)
+
+        if poisoned:
+            raise PoisonPillException()
 
     def join(self):
         for process in self.processes:
@@ -119,8 +126,9 @@ class Node:
             process.terminate()
 
     def poison_pill(self):
-        for i in range(self.number_of_processes):
-            self.inqueue.put(POISON_PILL)
+        if self.inqueue:
+            for i in range(self.number_of_processes):
+                self.inqueue.put(POISON_PILL)
 
     def is_alive(self):
         return any(process.is_alive() for process in self.processes)
@@ -128,20 +136,27 @@ class Node:
 
 class Pipeline:
 
-    def __init__(self, items, pipe=None):
-        self.pipe = pipe
+    def __init__(self, items):
         self.items = items
-        self.nodes = [item for item in items if isinstance(item, Node)]
-        self.connect(self.items, pipe=pipe if pipe else False)
+        self.setup()
+
+    def setup(self, indata=None, outdata=None):
+        if indata:
+            self.items.insert(0, indata)
+        if outdata:
+            self.items.append(outdata)
+
+        self.nodes = [item for item in self.items if isinstance(item, Node)]
+        self.connect(self.items, False)
 
     def connect(self, rest, pipe=None):
         if not rest:
-            return
+            return pipe
 
         head, *tail = rest
 
         if isinstance(head, queues.Queue):
-            if pipe is not None:
+            if pipe:
                 raise ValueError('Cannot have two or more pipes next'
                                  ' to each other.')
             return self.connect(tail, pipe=head)
@@ -149,7 +164,8 @@ class Pipeline:
         elif isinstance(head, Node):
             if pipe is None:
                 pipe = Pipe()
-            head.inqueue = pipe
+            if pipe is not False:
+                head.inqueue = pipe
             head.outqueue = self.connect(tail)
             return head.inqueue
 
@@ -165,9 +181,14 @@ class Pipeline:
         for node in self.nodes:
             node.join()
 
+    def terminate(self):
+        for node in self.nodes:
+            node.terminate()
+
     def poison_pill(self):
         for node in self.nodes:
             node.poison_pill()
+            node.join()
 
     def is_alive(self):
         return any(node.is_alive() for node in self.nodes)
