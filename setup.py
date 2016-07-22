@@ -33,12 +33,12 @@ docs_require = [
 
 setup(
     name='pipes',
-    version='0.0.1',
+    version='0.1.0',
     description='pipes: create and scale complex pipelines on multiple cores.',
     long_description=__doc__,
-    url='https://github.com/vrde/pipes/',
-    author='Alberto Granzotto',
-    author_email='agranzot@gmail.com',
+    url='https://github.com/bigchaindb/pipes/',
+    author='BigchainDB dev',
+    author_email='alberto@bigchaindb.com',
     license='AGPLv3',
     zip_safe=False,
 

@@ -141,15 +141,17 @@ class Pipeline:
         self.setup()
 
     def setup(self, indata=None, outdata=None):
+        items_copy = self.items[:]
         if indata:
-            self.items.insert(0, indata)
+            items_copy.insert(0, indata)
         if outdata:
-            self.items.append(outdata)
+            items_copy.append(outdata)
 
-        self.nodes = [item for item in self.items if isinstance(item, Node)]
-        self.connect(self.items, False)
+        self.nodes = [item for item in items_copy if isinstance(item, Node)]
+        self.connect(items_copy, False)
 
     def connect(self, rest, pipe=None):
+
         if not rest:
             return pipe
 
