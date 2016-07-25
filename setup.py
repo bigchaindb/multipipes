@@ -33,7 +33,7 @@ docs_require = [
 
 setup(
     name='multipipes',
-    version='0.1.1',
+    version='0.1.0',
     description='Create and scale complex pipelines on multiple cores.',
     long_description=__doc__,
     url='https://github.com/bigchaindb/multipipes/',
