@@ -1,3 +1,3 @@
-# Pipes
+# Multipipes
 
-`pipes` is a simple Python module to create pipelines to process data.
+`multipipes` is a simple Python module to create pipelines to process data.

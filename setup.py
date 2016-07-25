@@ -1,5 +1,5 @@
 """
-pipes: create and scale complex pipelines on multiple cores.
+multipipes: create and scale complex pipelines on multiple cores.
 """
 
 # Heavily inspired by:
@@ -32,11 +32,11 @@ docs_require = [
 ]
 
 setup(
-    name='pipes',
-    version='0.1.0',
-    description='pipes: create and scale complex pipelines on multiple cores.',
+    name='multipipes',
+    version='0.1.1',
+    description='Create and scale complex pipelines on multiple cores.',
     long_description=__doc__,
-    url='https://github.com/bigchaindb/pipes/',
+    url='https://github.com/bigchaindb/multipipes/',
     author='BigchainDB dev',
     author_email='alberto@bigchaindb.com',
     license='AGPLv3',

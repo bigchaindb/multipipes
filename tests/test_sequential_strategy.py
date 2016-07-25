@@ -1,6 +1,6 @@
 from itertools import count
 
-from pipes import Pipeline, Node, Pipe
+from multipipes import Pipeline, Node, Pipe
 
 
 def emit():

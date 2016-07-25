@@ -3,7 +3,7 @@ import pytest
 import queue
 import multiprocessing as mp
 
-from pipes import Node
+from multipipes import Node
 
 
 def test_target_callable_func_is_called():
