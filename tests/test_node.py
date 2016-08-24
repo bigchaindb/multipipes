@@ -53,7 +53,7 @@ def test_join():
     node.terminate()
 
 
-def test_poison_pill():
+def test_stop():
     inqueue = mp.Queue()
     outqueue = mp.Queue()
 
@@ -70,12 +70,12 @@ def test_poison_pill():
 
     assert outqueue.get() == 4
 
-    node.poison_pill()
+    node.stop()
     node.join()
     assert node.is_alive() is False
 
 
-def test_poison_pill_triggers_a_timeout():
+def test_stop_triggers_a_timeout():
     inqueue = mp.Queue()
     outqueue = mp.Queue()
 
@@ -91,7 +91,8 @@ def test_poison_pill_triggers_a_timeout():
 
     assert outqueue.get() == 4
 
-    node.poison_pill()
+    node.stop()
     node.join()
+
     assert node.is_alive() is False
     assert outqueue.get() == 'TIMEOUT'

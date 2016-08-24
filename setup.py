@@ -57,6 +57,7 @@ setup(
 
     packages=find_packages(exclude=['tests*']),
     install_requires=[
+        'setproctitle'
     ],
     setup_requires=['pytest-runner'],
     tests_require=tests_require,
