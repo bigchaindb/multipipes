@@ -1,4 +1,4 @@
-from .pipeline import Pipeline, Node, Pipe, POISON_PILL
+from .pipeline import Pipeline, Node, Pipe
 
 def set_debug(enabled=True):
     from multipipes import pipeline

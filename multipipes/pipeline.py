@@ -4,6 +4,8 @@ import traceback
 import types
 import math
 import signal
+import time
+from uuid import uuid4
 from inspect import signature
 import multiprocessing as mp
 import threading
@@ -14,8 +16,18 @@ from setproctitle import setproctitle
 from multipipes import utils
 
 
-POISON_PILL = 'POISON_PILL'
+
 DEBUG = bool(int(os.environ.get('PYTHONMULTIPIPESDEBUG', 0)))
+
+
+class PoisonPill:
+    def __init__(self, uuid=None):
+        if not uuid:
+            uuid = uuid4()
+        self.uuid = uuid
+
+    def __eq__(self, other):
+        return self.uuid == other.uuid
 
 
 class PoisonPillException(Exception):
@@ -43,6 +55,7 @@ class Node:
         self.name = name if name else target.__name__
         self.inqueue = inqueue
         self.outqueue = outqueue
+        self.processes = []
         self.process_namespace = 'pipeline'
 
         if (number_of_processes and number_of_processes <= 0) or\
@@ -63,13 +76,19 @@ class Node:
         else:
             self.number_of_processes = 1
 
-        self.processes = [mp.Process(target=self.safe_run_forever)
-                          for i in range(self.number_of_processes)]
+    @property
+    def alive_processes(self):
+        return [process for process in self.processes
+                if process.is_alive()]
 
     def log(self, *args):
         print('[{}] {}> '.format(os.getpid(), self.name), *args)
 
     def start(self, error_channel=None):
+        self.session_poison_pill = PoisonPill()
+        self.processes = [mp.Process(target=self.safe_run_forever)
+                          for _ in range(self.number_of_processes)]
+
         self.error_channel = error_channel
 
         for process in self.processes:
@@ -81,7 +100,7 @@ class Node:
         except KeyboardInterrupt:
             pass
         except Exception as exc:
-            self.error_channel.put(exc)
+            self.error_channel.put((os.getpid(), exc))
             raise
 
     def run_forever(self):
@@ -101,13 +120,17 @@ class Node:
         if self.inqueue:
             try:
                 args = self.inqueue.get(timeout=self.timeout)
-                if args == POISON_PILL:
-                    poisoned = True
-                    raise queues.Empty()
+                if isinstance(args, PoisonPill):
+                    if args == self.session_poison_pill:
+                        poisoned = True
+                        raise queues.Empty()
+                    else:
+                        # discard the poison pill
+                        return
             except queues.Empty:
                 timeout = True
 
-        # self.log('recv', args)
+        self.log('recv', args)
 
         if not isinstance(args, tuple):
             args = (args, )
@@ -123,7 +146,7 @@ class Node:
         else:
             result = self.target(*args)
 
-        # self.log('send', result)
+        self.log('send', result)
 
         if result is not None and self.outqueue:
             if isinstance(result, types.GeneratorType):
@@ -136,20 +159,27 @@ class Node:
             raise PoisonPillException()
 
     def join(self, timeout=None):
-        for process in self.processes:
+        for process in self.alive_processes:
             process.join(timeout=timeout)
 
     def terminate(self):
-        for process in self.processes:
+        for process in self.alive_processes:
             process.terminate()
 
     def stop(self):
         if self.inqueue:
-            for i in range(self.number_of_processes):
-                self.inqueue.put(POISON_PILL)
+            for _ in self.alive_processes:
+                print(self, 'putting poison pill')
+                self.inqueue.put(self.session_poison_pill)
 
     def is_alive(self):
-        return any(process.is_alive() for process in self.processes)
+        return all(process.is_alive() for process in self.processes)
+
+    def __str__(self):
+        return '{} {}'.format([p.pid for p in self.processes], self.name)
+
+    def __repr__(self):
+        return str(self)
 
 
 class Pipeline:
@@ -160,14 +190,19 @@ class Pipeline:
         self.items = items
         self.errors = []
         self._error_channel = Pipe()
+
         self.restart_on_error = restart_on_error
         self.process_namespace = process_namespace
 
-        threading.Thread(target=self.handle_error, daemon=True).start()
-
         self.setup()
 
+        self._restart_lock = threading.Lock()
+        # threading.Thread(target=self.check_is_alive, daemon=True).start()
+        threading.Thread(target=self.handle_error, daemon=True).start()
+
     def setup(self, indata=None, outdata=None):
+        self._last_indata = indata
+        self._last_outdata = outdata
         items_copy = self.items[:]
 
         for item in items_copy:
@@ -202,7 +237,7 @@ class Pipeline:
             return head.inqueue
 
     def handle_error(self):
-        exc = self._error_channel.get()
+        pid, exc = self._error_channel.get()
         self.errors.append(exc)
 
         if DEBUG:
@@ -210,9 +245,22 @@ class Pipeline:
             LAST_ERROR = exc
             os.kill(os.getpid(), signal.SIGUSR1)
 
+        if self.restart_on_error:
+            self.restart()
+            # with self._restart_lock:
+            #     if not self.is_alive():
+            #         self.restart()
+
+    def check_is_alive(self):
+        while True:
+            with self._restart_lock:
+                if not self.is_alive():
+                    self.restart()
+            time.sleep(1)
+
     def restart(self):
         self.stop()
-        self.errors = []
+        self.setup(indata=self._last_indata, outdata=self._last_outdata)
         self.start()
 
     def step(self):
@@ -240,14 +288,17 @@ class Pipeline:
                 node.terminate()
 
     def is_alive(self):
-        return any(node.is_alive() for node in self.nodes)
+        return all(node.is_alive() for node in self.nodes)
 
 
 LAST_ERROR = None
+
+
 def exception_handler(signum, frame):
     try:
         raise LAST_ERROR
     except:
         print(traceback.format_exc())
     sys.exit(1)
+
 signal.signal(signal.SIGUSR1, exception_handler)
