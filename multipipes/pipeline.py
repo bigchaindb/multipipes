@@ -16,7 +16,6 @@ from setproctitle import setproctitle
 from multipipes import utils
 
 
-
 DEBUG = bool(int(os.environ.get('PYTHONMULTIPIPESDEBUG', 0)))
 
 
@@ -197,7 +196,7 @@ class Pipeline:
         self.setup()
 
         self._restart_lock = threading.Lock()
-        # threading.Thread(target=self.check_is_alive, daemon=True).start()
+        threading.Thread(target=self.check_is_alive, daemon=True).start()
         threading.Thread(target=self.handle_error, daemon=True).start()
 
     def setup(self, indata=None, outdata=None):
@@ -237,29 +236,38 @@ class Pipeline:
             return head.inqueue
 
     def handle_error(self):
-        pid, exc = self._error_channel.get()
-        self.errors.append(exc)
+        while True:
+            pid, exc = self._error_channel.get()
+            self.errors.append(exc)
 
-        if DEBUG:
-            global LAST_ERROR
-            LAST_ERROR = exc
-            os.kill(os.getpid(), signal.SIGUSR1)
+            if DEBUG:
+                global LAST_ERROR
+                LAST_ERROR = exc
+                os.kill(os.getpid(), signal.SIGUSR1)
 
-        if self.restart_on_error:
-            self.restart()
+            if self.restart_on_error:
+                self.restart()
+                # with self._restart_lock:
+                #     if not self.is_alive():
+                #         self.restart()
+
+    def check_is_alive(self):
+        # XXX: there might be a race condition with
+        #      `handle_error`
+        while True:
+            if not self.is_alive():
+                self.restart(hard=True)
+            time.sleep(1)
+
             # with self._restart_lock:
             #     if not self.is_alive():
             #         self.restart()
 
-    def check_is_alive(self):
-        while True:
-            with self._restart_lock:
-                if not self.is_alive():
-                    self.restart()
-            time.sleep(1)
-
-    def restart(self):
-        self.stop()
+    def restart(self, hard=False):
+        if hard:
+            self.terminate()
+        else:
+            self.stop()
         self.setup(indata=self._last_indata, outdata=self._last_outdata)
         self.start()
 

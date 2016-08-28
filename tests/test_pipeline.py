@@ -50,9 +50,10 @@ def test_pipeline_restarts(indata_pipeline_outdata):
     assert all(process.is_alive() for node in pipeline.nodes
                for process in node.processes)
 
+    pipeline.stop()
+
 
 def test_pipeline_restarts_on_error(indata_pipeline_outdata):
-    print('\n')
     import time
 
     indata, pipeline, outdata = indata_pipeline_outdata
@@ -62,7 +63,7 @@ def test_pipeline_restarts_on_error(indata_pipeline_outdata):
     processes = [process for node in pipeline.nodes
                  for process in node.processes]
     indata.put((4, 0))
-    time.sleep(1)
+    time.sleep(0.1)
 
     assert len(pipeline.errors) == 1
     assert isinstance(pipeline.errors[0], ZeroDivisionError)
@@ -81,9 +82,31 @@ def test_pipeline_restarts_on_error(indata_pipeline_outdata):
     indata.put((4, 2))
     assert outdata.get() == 3
 
+    indata.put((4, 0))
+    time.sleep(0.1)
 
+    assert len(pipeline.errors) == 2
+    assert isinstance(pipeline.errors[0], ZeroDivisionError)
+
+    # old processes should be gone
+    assert all(not process.is_alive() for process in processes)
+
+    alive = [(process.pid, process.is_alive()) for node in pipeline.nodes
+             for process in node.processes]
+    print(alive)
+
+    # new processes should be all running
+    assert all(process.is_alive() for node in pipeline.nodes
+               for process in node.processes)
+
+    pipeline.stop()
+
+
+@pytest.mark.skipif(reason='Feature not yet ready')
 def test_pipeline_restart_when_a_process_is_killed(indata_pipeline_outdata):
+    import os
     import time
+    import signal
 
     indata, pipeline, outdata = indata_pipeline_outdata
 
@@ -91,13 +114,12 @@ def test_pipeline_restart_when_a_process_is_killed(indata_pipeline_outdata):
     pipeline.start()
     processes = [process for node in pipeline.nodes
                  for process in node.processes]
-    indata.put((4, 0))
-    time.sleep(0.1)
 
-    assert len(pipeline.errors) == 1
+    os.kill(processes[0].pid, signal.SIGKILL)
+    time.sleep(1.1)
 
     # old processes should be gone
-    assert all(not process.is_alive() for process in processes)
+    assert any(not process.is_alive() for process in processes)
 
     # new processes should be all running
     assert all(process.is_alive() for node in pipeline.nodes
@@ -105,3 +127,5 @@ def test_pipeline_restart_when_a_process_is_killed(indata_pipeline_outdata):
 
     indata.put((4, 2))
     assert outdata.get() == 3
+
+    pipeline.stop()
