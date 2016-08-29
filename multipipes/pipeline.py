@@ -1,22 +1,19 @@
 import os
-import sys
-import traceback
-import types
 import math
-import signal
-import time
+import types
+import logging
 from uuid import uuid4
+from random import randint
 from inspect import signature
 import multiprocessing as mp
-import threading
 from multiprocessing import queues
 
 from setproctitle import setproctitle
 
-from multipipes import utils
+from multipipes import manager, utils
 
 
-DEBUG = bool(int(os.environ.get('PYTHONMULTIPIPESDEBUG', 0)))
+logger = logging.getLogger(__name__)
 
 
 class PoisonPill:
@@ -44,16 +41,26 @@ def pass_through(val):
 class Node:
 
     def __init__(self, target=None, inqueue=None, outqueue=None,
-                 name=None, timeout=None, number_of_processes=None,
-                 max_execution_time=None, fraction_of_cores=None):
+                 name=None, timeout=None,
+                 number_of_processes=None, fraction_of_cores=None,
+                 max_execution_time=None, max_requests=None):
 
         self.target = target if target else pass_through
         self.timeout = timeout
-        self.max_execution_time = max_execution_time
         self.accept_timeout = 'timeout' in signature(self.target).parameters
         self.name = name if name else target.__name__
+        self.max_execution_time = max_execution_time
+
+        if max_requests:
+            # Add variance to prevent killing all the workers at the same time
+            delta = int(max_requests * 0.05)
+            self.max_requests = max_requests + randint(-delta, delta)
+        else:
+            self.max_requests = None
+
         self.inqueue = inqueue
         self.outqueue = outqueue
+
         self.processes = []
         self.process_namespace = 'pipeline'
 
@@ -83,28 +90,45 @@ class Node:
     def log(self, *args):
         print('[{}] {}> '.format(os.getpid(), self.name), *args)
 
-    def start(self, error_channel=None):
+    def start(self, events_queue=None):
+        self.max_requests_count = 0
         self.session_poison_pill = PoisonPill()
         self.processes = [mp.Process(target=self.safe_run_forever)
                           for _ in range(self.number_of_processes)]
 
-        self.error_channel = error_channel
+        self.events_queue = events_queue
 
         for process in self.processes:
             process.start()
 
+    def start_one(self):
+        self.max_requests_count = 0
+        process = mp.Process(target=self.safe_run_forever)
+        self.processes.append(process)
+        process.start()
+
     def safe_run_forever(self):
+        setproctitle(':'.join([self.process_namespace, self.name]))
+        logger.info('Starting %s:%s %s',
+                    self.process_namespace, self.name, os.getpid())
         try:
             self.run_forever()
         except KeyboardInterrupt:
             pass
         except Exception as exc:
-            self.error_channel.put((os.getpid(), exc))
+            if self.events_queue:
+                self.events_queue.put({'type': 'exception', 'context': exc})
             raise
 
     def run_forever(self):
-        setproctitle(':'.join([self.process_namespace, self.name]))
         while True:
+            if self.max_requests:
+                self.max_requests_count += 1
+                # we need to send just one message here:
+                if self.max_requests_count == self.max_requests:
+                    self.events_queue.put({'type': 'max_requests',
+                                           'context': os.getpid()})
+                    return
             try:
                 with utils.deadline(self.max_execution_time):
                     self.run()
@@ -129,7 +153,7 @@ class Node:
             except queues.Empty:
                 timeout = True
 
-        self.log('recv', args)
+        # self.log('recv', args)
 
         if not isinstance(args, tuple):
             args = (args, )
@@ -145,7 +169,7 @@ class Node:
         else:
             result = self.target(*args)
 
-        self.log('send', result)
+        # self.log('send', result)
 
         if result is not None and self.outqueue:
             if isinstance(result, types.GeneratorType):
@@ -168,8 +192,12 @@ class Node:
     def stop(self):
         if self.inqueue:
             for _ in self.alive_processes:
-                print(self, 'putting poison pill')
                 self.inqueue.put(self.session_poison_pill)
+
+    def restart(self):
+        self.stop()
+        self.join()
+        self.start(events_queue=self.events_queue)
 
     def is_alive(self):
         return all(process.is_alive() for process in self.processes)
@@ -183,34 +211,29 @@ class Node:
 
 class Pipeline:
     def __init__(self, items, *,
-                 restart_on_error=False,
-                 process_namespace='pipeline'):
+                 process_namespace='pipeline',
+                 restart_on_error=False):
 
         self.items = items
-        self.errors = []
-        self._error_channel = Pipe()
-
-        self.restart_on_error = restart_on_error
+        self.events_queue = Pipe()
         self.process_namespace = process_namespace
 
+        self.manager = manager.Manager(self, self.events_queue,
+                                       restart_on_error=restart_on_error)
         self.setup()
-
-        self._restart_lock = threading.Lock()
-        threading.Thread(target=self.check_is_alive, daemon=True).start()
-        threading.Thread(target=self.handle_error, daemon=True).start()
 
     def setup(self, indata=None, outdata=None):
         self._last_indata = indata
         self._last_outdata = outdata
         items_copy = self.items[:]
 
-        for item in items_copy:
-            item.process_namespace = self.process_namespace
-
         if indata:
             items_copy.insert(0, indata)
         if outdata:
             items_copy.append(outdata)
+
+        for item in items_copy:
+            item.process_namespace = self.process_namespace
 
         self.nodes = [item for item in items_copy if isinstance(item, Node)]
         self.connect(items_copy, False)
@@ -235,34 +258,6 @@ class Pipeline:
             head.outqueue = self.connect(tail)
             return head.inqueue
 
-    def handle_error(self):
-        while True:
-            pid, exc = self._error_channel.get()
-            self.errors.append(exc)
-
-            if DEBUG:
-                global LAST_ERROR
-                LAST_ERROR = exc
-                os.kill(os.getpid(), signal.SIGUSR1)
-
-            if self.restart_on_error:
-                self.restart()
-                # with self._restart_lock:
-                #     if not self.is_alive():
-                #         self.restart()
-
-    def check_is_alive(self):
-        # XXX: there might be a race condition with
-        #      `handle_error`
-        while True:
-            if not self.is_alive():
-                self.restart(hard=True)
-            time.sleep(1)
-
-            # with self._restart_lock:
-            #     if not self.is_alive():
-            #         self.restart()
-
     def restart(self, hard=False):
         if hard:
             self.terminate()
@@ -277,7 +272,7 @@ class Pipeline:
 
     def start(self):
         for node in self.nodes:
-            node.start(error_channel=self._error_channel)
+            node.start(events_queue=self.events_queue)
 
     def join(self):
         for node in self.nodes:
@@ -298,15 +293,3 @@ class Pipeline:
     def is_alive(self):
         return all(node.is_alive() for node in self.nodes)
 
-
-LAST_ERROR = None
-
-
-def exception_handler(signum, frame):
-    try:
-        raise LAST_ERROR
-    except:
-        print(traceback.format_exc())
-    sys.exit(1)
-
-signal.signal(signal.SIGUSR1, exception_handler)

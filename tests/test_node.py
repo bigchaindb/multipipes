@@ -96,3 +96,54 @@ def test_stop_triggers_a_timeout():
 
     assert node.is_alive() is False
     assert outqueue.get() == 'TIMEOUT'
+
+
+def test_restart_change_pid():
+    inqueue = mp.Queue()
+    outqueue = mp.Queue()
+
+    def double(val):
+        return val * 2
+
+    node = Node(double, inqueue, outqueue)
+    node.start()
+    pid = node.processes[0].pid
+    assert pid
+
+    node.restart()
+    assert pid != node.processes[0].pid
+
+    node.stop()
+    node.join()
+
+
+def test_node_counts_requests():
+    events_queue = mp.Queue()
+    inqueue = mp.Queue()
+    outqueue = mp.Queue()
+
+    def double(val):
+        return val * 2
+
+    node = Node(double, inqueue, outqueue)
+    node.max_requests = 10
+    node.start(events_queue=events_queue)
+
+    for _ in range(10):
+        inqueue.put(2)
+
+    event = events_queue.get()
+    assert event['type'] == 'max_requests'
+    assert event['context'] == node.processes[0].pid
+
+    node.restart()
+
+    for _ in range(10):
+        inqueue.put(2)
+        outqueue.get()
+
+    event = events_queue.get()
+    assert event['type'] == 'max_requests'
+    assert event['context'] == node.processes[0].pid
+
+    node.stop()
