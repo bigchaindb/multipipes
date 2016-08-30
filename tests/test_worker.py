@@ -17,6 +17,32 @@ def test_worker_runs_target_function():
     assert outdata.get() == 4
 
 
+def test_worker_runs_target_function_and_count_requests():
+    from multipipes import Worker, Pipe
+
+    indata = Pipe()
+    outdata = Pipe()
+
+    def double(x):
+        return x * 2
+
+    worker = Worker(double, indata, outdata)
+
+    indata.put(2)
+    indata.put(2)
+    indata.put(2)
+
+    worker.run()
+    worker.run()
+    worker.run()
+
+    assert outdata.get() == 4
+    assert outdata.get() == 4
+    assert outdata.get() == 4
+
+    assert worker.requests_count == 3
+
+
 def test_worker_returns_multiple_elements_when_iterator():
     from multipipes import Worker, Pipe
 
@@ -96,4 +122,31 @@ def test_worker_keyboard_interrupt_triggers_poison_pill():
     with pytest.raises(exceptions.PoisonPillException):
         worker.run_forever()
     assert outdata.get(2)
+
+
+def test_worker_handles_max_request_count(monkeypatch):
+    from multipipes import exceptions, Worker, Pipe
+
+    monkeypatch.setattr('multipipes.worker._randomize_max_requests',
+                        lambda x: x)
+
+    indata = Pipe()
+    outdata = Pipe()
+
+    def double(x):
+        return x * 2
+
+    worker = Worker(double, indata, outdata,
+                    max_requests=3)
+
+    indata.put(1)
+    indata.put(2)
+    indata.put(3)
+
+    with pytest.raises(exceptions.MaxRequestsException):
+        worker.run_forever()
+
+    assert outdata.get() == 2
+    assert outdata.get() == 4
+    assert outdata.get() == 6
 

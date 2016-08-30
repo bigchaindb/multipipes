@@ -2,6 +2,7 @@
 
 import types
 import inspect
+from random import randint
 from multiprocessing import queues
 
 from multipipes import exceptions, utils
@@ -12,6 +13,12 @@ def _inspect_target(target):
     arguments = [name for name, param in params.items()
                  if param.default is inspect.Signature.empty]
     return len(arguments)
+
+
+def _randomize_max_requests(value, variance=0.05):
+    # Add variance to prevent killing all the workers at the same time
+    delta = int(value, variance)
+    return value + randint(-delta, delta)
 
 
 class Worker:
@@ -26,8 +33,13 @@ class Worker:
         self.timeout = timeout
         # Check if the target function accepts a timeout parameter
         self.arguments = _inspect_target(target)
+
         self.max_execution_time = max_execution_time
-        self.max_requests = max_requests
+        if max_requests:
+            self.max_requests = _randomize_max_requests(max_requests)
+        else:
+            self.max_requests = None
+        self.requests_count = 0
 
     def run_forever(self):
         while True:
@@ -38,22 +50,40 @@ class Worker:
                     self.indata.put(utils.PoisonPill())
 
     def run(self):
+        self.run_handle_exceptions()
+
+    def run_handle_exceptions(self):
+        try:
+            self.run_handle_requests_count()
+        except exceptions.PoisonPillException:
+            raise
+        except exceptions.MaxRequestsException:
+            raise
+        except TimeoutError:
+            raise
+        except Exception:
+            raise
+
+    def run_handle_requests_count(self):
+        if self.requests_count == self.max_requests:
+            raise exceptions.MaxRequestsException()
+        self.requests_count += 1
+        self.run_handle_args()
+
+    def run_handle_args(self):
         args, poisoned = self.pull()
 
-        if poisoned:
-            if self.timeout:
-                result = self.run_target(args)
-            else:
-                result = None
+        if poisoned and not self.timeout:
+            result = None
         else:
-            result = self.run_target(args)
+            result = self.run_handle_target(args)
 
         self.push(result)
 
         if poisoned:
             raise exceptions.PoisonPillException()
 
-    def run_target(self, args):
+    def run_handle_target(self, args):
         with utils.deadline(self.max_execution_time):
             return self.target(*args)
 
@@ -82,4 +112,3 @@ class Worker:
                     self.outdata.put(item)
             else:
                 self.outdata.put(result)
-
