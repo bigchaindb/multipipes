@@ -3,7 +3,7 @@
 import types
 import inspect
 from random import randint
-from multiprocessing import queues
+from multiprocessing import Process, queues
 
 from multipipes import exceptions, utils
 
@@ -17,11 +17,11 @@ def _inspect_target(target):
 
 def _randomize_max_requests(value, variance=0.05):
     # Add variance to prevent killing all the workers at the same time
-    delta = int(value, variance)
+    delta = round(value * variance)
     return value + randint(-delta, delta)
 
 
-class Worker:
+class Task:
     def __init__(self, target, indata=None, outdata=None, *,
                  block=True, timeout=None, max_execution_time=None,
                  max_requests=None):
@@ -45,6 +45,8 @@ class Worker:
         while True:
             try:
                 self.run()
+            except exceptions.PoisonPillException:
+                break
             except KeyboardInterrupt:
                 if self.indata:
                     self.indata.put(utils.PoisonPill())
@@ -55,10 +57,6 @@ class Worker:
     def run_handle_exceptions(self):
         try:
             self.run_handle_requests_count()
-        except exceptions.PoisonPillException:
-            raise
-        except exceptions.MaxRequestsException:
-            raise
         except TimeoutError:
             raise
         except Exception:
@@ -112,3 +110,41 @@ class Worker:
                     self.outdata.put(item)
             else:
                 self.outdata.put(result)
+
+
+class Worker:
+    def __init__(self, task=None, *, daemon=None):
+        self.daemon = daemon
+        self.task = task
+
+    def run(self):
+        try:
+            self.task.run_forever()
+        except exceptions.MaxRequestsException:
+            self.restart()
+
+    def start(self):
+        self.process = Process(target=self.run)
+        self.process.start()
+        self.pid = self.process.pid
+
+    def stop(self):
+        self.task.indata.put(utils.PoisonPill())
+
+    def restart(self, timeout=None):
+        self.stop()
+        try:
+            self.join(timeout=timeout)
+        except TimeoutError:
+            self.terminate()
+            self.join()
+        self.start()
+
+    def join(self, timeout=None):
+        self.process.join(timeout)
+
+    def terminate(self):
+        self.process.terminate()
+
+    def is_alive(self):
+        self.process.is_alive()
