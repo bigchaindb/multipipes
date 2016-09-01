@@ -9,3 +9,9 @@ class PoisonPillException(Exception):
 class MaxRequestsException(Exception):
     """Raised when a node has reached the maximum number of requests
     to process."""
+
+
+class TimeoutNotSupportedError(Exception):
+    """Raised when a Task is called without any arguments because
+    a timeout happened, but the Task doesn't have any default
+    values."""
