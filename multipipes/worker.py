@@ -139,6 +139,12 @@ class Worker:
         except exceptions.MaxRequestsException:
             self.restart()
 
+    def _register_signal_handler(self):
+        signal.signal(self._stop, signal.SIGINT)
+
+    def _stop(self, signum, frame):
+        self.task.exit_signal = True
+
     def start(self):
         self.process = Process(target=self.run)
         self.process.start()

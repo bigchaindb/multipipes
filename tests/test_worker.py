@@ -241,5 +241,3 @@ def test_worker_restarts_when_task_reaches_max_requests():
 
     worker.stop()
     worker.join()
-
-
