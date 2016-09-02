@@ -13,7 +13,7 @@ def test_task_runs_target_function():
     task = Task(double, indata, outdata)
 
     indata.put(2)
-    task.run()
+    task.step()
     assert outdata.get() == 4
 
 
@@ -32,9 +32,9 @@ def test_task_runs_target_function_and_count_requests():
     indata.put(2)
     indata.put(2)
 
-    task.run()
-    task.run()
-    task.run()
+    task.step()
+    task.step()
+    task.step()
 
     assert outdata.get() == 4
     assert outdata.get() == 4
@@ -56,7 +56,7 @@ def test_task_returns_multiple_elements_when_iterator():
     task = Task(unpack, indata, outdata)
 
     indata.put([1, 2, 3])
-    task.run()
+    task.step()
     assert outdata.get() == 1
     assert outdata.get() == 2
     assert outdata.get() == 3
@@ -68,19 +68,19 @@ def test_task_triggers_a_timeout_and_sets_kwarg_to_true():
     indata = Pipe()
     outdata = Pipe()
 
-    def add(x, y):
+    def add(x=None, y=None):
         if not x and not y:
             return 'TIMEOUT'
         else:
             return x + y
 
-    task = Task(add, indata, outdata, timeout=0.1)
+    task = Task(add, indata, outdata, read_timeout=0.1)
 
     indata.put((1, 2))
-    task.run()
+    task.step()
     assert outdata.get() == 3
 
-    task.run()
+    task.step()
     assert outdata.get() == 'TIMEOUT'
 
 
@@ -99,7 +99,7 @@ def test_task_triggers_deadline_when_slow():
 
     indata.put((1, 2))
     with pytest.raises(TimeoutError):
-        task.run()
+        task.step()
 
 
 def test_task_keyboard_interrupt_triggers_poison_pill():
@@ -156,7 +156,7 @@ def test_worker_spawn_process():
     def double(x):
         return x * 2
 
-    task = Task(double, indata, outdata, max_requests=3)
+    task = Task(double, indata, outdata)
     worker = Worker(task)
     worker.start()
 
