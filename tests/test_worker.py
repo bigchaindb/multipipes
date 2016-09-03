@@ -198,18 +198,21 @@ def test_worker_restart_spawns_a_new_process():
     worker.join()
 
 
-@pytest.mark.skipif(reason='Need to refactor how queue are accessed')
+# @pytest.mark.skipif(reason='Need to refactor how queue are accessed')
 def test_worker_restarts_when_task_reaches_max_requests():
     from multipipes import Pipe, Task, Worker
+    from multipipes.manager import Manager
 
+    manager = Manager()
     indata = Pipe()
     outdata = Pipe()
 
     def double(x):
         return x * 2
 
-    task = Task(double, indata, outdata, max_requests=3)
-    worker = Worker(task)
+    task = Task(double, indata, outdata,
+                max_requests=3)
+    worker = Worker(task, manager=manager)
     worker.start()
 
     original_pid = worker.pid

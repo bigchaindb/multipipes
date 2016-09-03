@@ -5,6 +5,7 @@ import signal
 import logging
 import threading
 import traceback
+import multiprocessing as mp
 
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,35 @@ signal.signal(signal.SIGUSR1, exception_handler)
 
 
 class Manager:
+    def __init__(self):
+        self.events_queue = mp.Queue()
+        self.events_thread = threading.Thread(target=self.handle_events,
+                                              daemon=True)
+        self.events_thread.start()
+        self.workers = {}
+
+        self.mapping = {
+            'max_requests': self.handle_max_requests,
+        }
+
+    def register_worker(self, pid, worker):
+        self.workers[pid] = worker
+
+    def send_event(self, event):
+        self.events_queue.put(event)
+
+    def handle_events(self):
+        while True:
+            event = self.events_queue.get()
+            func = self.mapping[event['type']]
+            func(event)
+
+    def handle_max_requests(self, event):
+        worker = self.workers[event['pid']]
+        worker.restart()
+
+
+class Manager2:
 
     def __init__(self, pipeline, events_queue,
                  *, restart_on_error=False,

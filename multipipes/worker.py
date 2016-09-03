@@ -129,26 +129,35 @@ class Task:
 
 
 class Worker:
-    def __init__(self, task=None, *, daemon=None):
+    def __init__(self, task=None, *,
+                 manager=None, daemon=None):
         self.task = task
+        self.manager = manager
         self.daemon = daemon
 
     def run(self):
+        signal.signal(signal.SIGINT, self._stop)
+
         try:
             self.task.run_forever()
         except exceptions.MaxRequestsException:
-            self.restart()
-
-    def _register_signal_handler(self):
-        signal.signal(self._stop, signal.SIGINT)
+            self.send_event({'type': 'max_requests'})
 
     def _stop(self, signum, frame):
         self.task.exit_signal = True
+
+    def send_event(self, event):
+        if self.manager:
+            event['pid'] = os.getpid()
+            self.manager.send_event(event)
 
     def start(self):
         self.process = Process(target=self.run)
         self.process.start()
         self.pid = self.process.pid
+
+        if self.manager:
+            self.manager.register_worker(self.pid, self)
 
     def stop(self):
         os.kill(self.pid, signal.SIGINT)
