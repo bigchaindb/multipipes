@@ -163,8 +163,10 @@ class Worker:
         self.exit_signal = False
 
     def stop(self):
-        # import time
-        # time.sleep(1)
+        """Warning: if `stop` is called just after `start`, the SIGINT
+        might be ignored by the child process because it hasn't
+        registered the callback yet.
+        """
         if self.exit_signal:
             return
         os.kill(self.pid, signal.SIGINT)
