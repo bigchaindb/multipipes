@@ -1,7 +1,7 @@
 import pytest
 
 
-def double(x):
+def double(x=1):
     return x * 2
 
 
@@ -47,11 +47,8 @@ def test_task_allows_empty_args_only_if_target_has_defaults():
     def add(x, y):
         return x + y
 
-    task = Task(add)
-    assert task(1, 2) == 3
-
     with pytest.raises(exceptions.TimeoutNotSupportedError):
-        task(None)
+        Task(add, read_timeout=1)
 
 
 def test_task_triggers_deadline_when_slow():

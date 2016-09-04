@@ -29,21 +29,26 @@ class Manager:
         self.events_queue = mp.Queue()
         self.events_thread = threading.Thread(target=self.handle_events,
                                               daemon=True)
+        self.running = True
         self.events_thread.start()
         self.workers = {}
 
         self.mapping = {
             'max_requests': self.handle_max_requests,
+            'exit': self.handle_exit,
         }
 
     def register_worker(self, pid, worker):
         self.workers[pid] = worker
 
+    def stop(self):
+        self.events_queue.put({'type': 'exit'})
+
     def send_event(self, event):
         self.events_queue.put(event)
 
     def handle_events(self):
-        while True:
+        while self.running:
             event = self.events_queue.get()
             func = self.mapping[event['type']]
             func(event)
@@ -51,6 +56,9 @@ class Manager:
     def handle_max_requests(self, event):
         worker = self.workers[event['pid']]
         worker.restart()
+
+    def handle_exit(self, event):
+        self.running = False
 
 
 class Manager2:

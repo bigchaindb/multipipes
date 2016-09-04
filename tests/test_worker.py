@@ -169,6 +169,28 @@ def test_worker_spawn_process():
     assert not worker.is_alive()
 
 
+def test_worker_doesnt_starve():
+    from multipipes import Pipe, Task, Worker
+
+    indata = Pipe()
+    outdata = Pipe()
+
+    def double(x):
+        return x * 2
+
+    task = Task(double, indata, outdata)
+    worker = Worker(task)
+    worker.start()
+
+    indata.put(1)
+    assert outdata.get() == 2
+
+    worker.stop()
+    worker.join()
+
+    assert not worker.is_alive()
+
+
 def test_worker_restart_spawns_a_new_process():
     from multipipes import Pipe, Task, Worker
 
@@ -202,6 +224,7 @@ def test_worker_restart_spawns_a_new_process():
 def test_worker_restarts_when_task_reaches_max_requests():
     from multipipes import Pipe, Task, Worker
     from multipipes.manager import Manager
+    print('starrt')
 
     manager = Manager()
     indata = Pipe()
@@ -240,7 +263,18 @@ def test_worker_restarts_when_task_reaches_max_requests():
 
     indata.put(2)
     outdata.get()
-    assert worker.pid == new_pid
+
+    # XXX: this hack is terrible. If the worker reaches the
+    # max number of requests AND is stopped, some bad race condition
+    # happens.
+    import time
+    time.sleep(1)
+
+    assert worker.pid != new_pid
 
     worker.stop()
     worker.join()
+
+    manager.stop()
+
+    assert not worker.is_alive()

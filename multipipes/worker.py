@@ -134,6 +134,7 @@ class Worker:
         self.task = task
         self.manager = manager
         self.daemon = daemon
+        self.exit_signal = True
 
     def run(self):
         signal.signal(signal.SIGINT, self._stop)
@@ -159,7 +160,13 @@ class Worker:
         if self.manager:
             self.manager.register_worker(self.pid, self)
 
+        self.exit_signal = False
+
     def stop(self):
+        # import time
+        # time.sleep(1)
+        if self.exit_signal:
+            return
         os.kill(self.pid, signal.SIGINT)
 
     def restart(self, timeout=None):
