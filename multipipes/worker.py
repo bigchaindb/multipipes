@@ -4,7 +4,6 @@ import os
 import signal
 import types
 import inspect
-from random import randint
 from multiprocessing import Process, queues
 
 from multipipes import exceptions, utils
@@ -18,16 +17,10 @@ def _inspect_func(target):
     return params_count, accept_timeout
 
 
-def _randomize_max_requests(value, variance=0.05):
-    # Add variance to prevent killing all the workers at the same time
-    delta = round(value * variance)
-    return value + randint(-delta, delta)
-
-
 class Task:
     def __init__(self, target, indata=None, outdata=None, *,
                  max_execution_time=None, max_requests=None,
-                 read_timeout=None, polling_timeout=0.5):
+                 timeout=None, polling_timeout=0.5):
         self.target = target
         self.params_count, self.accept_timeout = _inspect_func(target)
         self.requests_count = 0
@@ -37,17 +30,14 @@ class Task:
         self.exit_signal = False
         self.running = True
 
-        self.read_timeout = read_timeout
+        self.timeout = timeout
         self.polling_timeout = polling_timeout
 
-        if self.read_timeout and not self.accept_timeout:
+        if self.timeout and not self.accept_timeout:
             raise exceptions.TimeoutNotSupportedError()
 
         self.max_execution_time = max_execution_time
-        if max_requests:
-            self.max_requests = _randomize_max_requests(max_requests)
-        else:
-            self.max_requests = None
+        self.max_requests = max_requests
 
     def step(self):
         args = self.pull()
@@ -66,7 +56,7 @@ class Task:
 
     def __call__(self, *args):
         if len(args) != self.params_count:
-            if not self.read_timeout:
+            if not self.timeout:
                 return
 
         with utils.deadline(self.max_execution_time):
@@ -76,16 +66,16 @@ class Task:
         return result
 
     def _read_from_indata(self):
-        if self.read_timeout:
-            if self.read_timeout <= self.polling_timeout:
+        if self.timeout:
+            if self.timeout <= self.polling_timeout:
                 try:
-                    return self.indata.get(timeout=self.read_timeout)
+                    return self.indata.get(timeout=self.timeout)
                 except queues.Empty:
                     return
             else:
                 # polling_timeout as much time then delta
-                times = int(self.read_timeout // self.polling_timeout)
-                delta = self.read_timeout - self.polling_timeout
+                times = int(self.timeout // self.polling_timeout)
+                delta = self.timeout - self.polling_timeout
                 for _ in range(times):
                     try:
                         return self.indata.get(timeout=self.polling_timeout)

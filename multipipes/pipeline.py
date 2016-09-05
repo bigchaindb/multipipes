@@ -8,26 +8,10 @@ from inspect import signature
 import multiprocessing as mp
 from multiprocessing import queues
 
-from setproctitle import setproctitle
-
 from multipipes import manager, utils
 
 
 logger = logging.getLogger(__name__)
-
-
-class PoisonPill:
-    def __init__(self, uuid=None):
-        if not uuid:
-            uuid = uuid4()
-        self.uuid = uuid
-
-    def __eq__(self, other):
-        return self.uuid == other.uuid
-
-
-class PoisonPillException(Exception):
-    pass
 
 
 def Pipe(maxsize=0):
@@ -36,6 +20,11 @@ def Pipe(maxsize=0):
 
 def pass_through(val):
     return val
+
+def _randomize_max_requests(value, variance=0.05):
+    # Add variance to prevent killing all the workers at the same time
+    delta = round(value * variance)
+    return value + randint(-delta, delta)
 
 
 class Node:
@@ -46,8 +35,7 @@ class Node:
                  max_execution_time=None, max_requests=None):
 
         self.target = target if target else pass_through
-        self.timeout = timeout
-        self.accept_timeout = 'timeout' in signature(self.target).parameters
+        self.read_timeout = read_timeout
         self.name = name if name else target.__name__
         self.max_execution_time = max_execution_time
 

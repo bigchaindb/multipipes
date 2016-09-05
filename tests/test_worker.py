@@ -74,7 +74,7 @@ def test_task_triggers_a_timeout_and_sets_kwarg_to_true():
         else:
             return x + y
 
-    task = Task(add, indata, outdata, read_timeout=0.1)
+    task = Task(add, indata, outdata, timeout=0.1)
 
     indata.put((1, 2))
     task.step()
@@ -121,11 +121,8 @@ def test_task_keyboard_interrupt_triggers_poison_pill():
     assert outdata.get(2)
 
 
-def test_task_handles_max_request_count(monkeypatch):
+def test_task_handles_max_request_count():
     from multipipes import exceptions, Task, Pipe
-
-    monkeypatch.setattr('multipipes.worker._randomize_max_requests',
-                        lambda x: x)
 
     indata = Pipe()
     outdata = Pipe()
