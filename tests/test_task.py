@@ -48,7 +48,7 @@ def test_task_allows_empty_args_only_if_target_has_defaults():
         return x + y
 
     with pytest.raises(exceptions.TimeoutNotSupportedError):
-        Task(add, read_timeout=1)
+        Task(add, timeout=1)
 
 
 def test_task_triggers_deadline_when_slow():
@@ -82,11 +82,11 @@ def test_task_handles_max_request_count(monkeypatch):
         task(4)
 
 
-def test_read_from_indata_read_timeout_lt_polling_timeout():
+def test_read_from_indata_timeout_lt_polling_timeout():
     from multipipes import Pipe, Task
 
     indata = Pipe()
-    task = Task(double, indata=indata, read_timeout=0.1, polling_timeout=0.5)
+    task = Task(double, indata=indata, timeout=0.1, polling_timeout=0.5)
 
     task.exit_signal = True
     assert not task._read_from_indata()
@@ -95,21 +95,21 @@ def test_read_from_indata_read_timeout_lt_polling_timeout():
     assert task._read_from_indata() == 1
 
 
-def test_read_from_indata_read_timeout_gt_polling_timeout():
+def test_read_from_indata_timeout_gt_polling_timeout():
     from multipipes import Pipe, Task
 
     indata = Pipe()
-    task = Task(double, indata=indata, read_timeout=1, polling_timeout=0.3)
+    task = Task(double, indata=indata, timeout=1, polling_timeout=0.3)
 
     task.exit_signal = True
     assert not task._read_from_indata()
 
 
-def test_read_from_indata_read_timeout_is_none():
+def test_read_from_indata_timeout_is_none():
     from multipipes import Pipe, Task
 
     indata = Pipe()
-    task = Task(double, indata=indata, read_timeout=None, polling_timeout=0.5)
+    task = Task(double, indata=indata, timeout=None, polling_timeout=0.5)
 
     task.exit_signal = True
     assert not task._read_from_indata()
