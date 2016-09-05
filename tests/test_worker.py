@@ -224,7 +224,6 @@ def test_worker_restart_spawns_a_new_process():
 def test_worker_restarts_when_task_reaches_max_requests():
     from multipipes import Pipe, Task, Worker
     from multipipes.manager import Manager
-    print('starrt')
 
     manager = Manager()
     indata = Pipe()
@@ -274,7 +273,5 @@ def test_worker_restarts_when_task_reaches_max_requests():
 
     worker.stop()
     worker.join()
-
-    manager.stop()
 
     assert not worker.is_alive()
