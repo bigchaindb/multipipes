@@ -5,7 +5,9 @@ import inspect
 from multiprocessing import queues
 
 from .utils import deadline
-from .exceptions import MaxRequestsException, TimeoutNotSupportedError
+from .exceptions import (MaxRequestsException,
+                         TimeoutNotSupportedError,
+                         ExitTaskException)
 
 
 def _inspect_func(target):
@@ -38,26 +40,28 @@ class Task:
         self.max_execution_time = max_execution_time
         self.max_requests = max_requests
 
-    def step(self):
-        args = self.pull()
-        result = self(*args)
-        self.push(result)
-
-        if self.requests_count == self.max_requests:
-            raise MaxRequestsException()
-
     def run_forever(self):
         while self.running:
             try:
                 self.step()
             except KeyboardInterrupt:
                 self.exit_signal = True
+            except ExitTaskException:
+                self.running = False
+
+    def step(self):
+        args = self.pull()
+
+        if not args and not self.timeout:
+            raise ExitTaskException()
+
+        result = self(*args)
+        self.push(result)
+
+        if self.requests_count == self.max_requests:
+            raise MaxRequestsException()
 
     def __call__(self, *args):
-        if len(args) != self.params_count:
-            if not self.timeout:
-                return
-
         with deadline(self.max_execution_time):
             result = self.target(*args)
 
@@ -99,6 +103,8 @@ class Task:
     def pull(self):
         if self.indata:
             args = self._read_from_indata()
+        else:
+            args = ()
 
         if args is None:
             args = ()

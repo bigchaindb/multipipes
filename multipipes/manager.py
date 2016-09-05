@@ -24,8 +24,8 @@ signal.signal(signal.SIGUSR1, exception_handler)
 
 
 class Manager:
-    def __init__(self):
-        self.events_queue = mp.Queue()
+    def __init__(self, events_queue=None):
+        self.events_queue = events_queue if events_queue else mp.Queue()
         self.events_thread = threading.Thread(target=self.handle_events,
                                               daemon=True)
         self.running = True
@@ -37,8 +37,9 @@ class Manager:
             'exit': self.handle_exit,
         }
 
-    def register_worker(self, pid, worker):
-        self.workers[pid] = worker
+    def register_worker(self, worker):
+        self.workers[worker.uuid] = worker
+        worker.events_queue = self.events_queue
 
     def stop(self):
         self.events_queue.put({'type': 'exit'})
@@ -53,8 +54,8 @@ class Manager:
             func(event)
 
     def handle_max_requests(self, event):
-        worker = self.workers[event['pid']]
-        worker.restart()
+        worker = self.workers[event['uuid']]
+        worker.start()
 
     def handle_exit(self, event):
         self.running = False

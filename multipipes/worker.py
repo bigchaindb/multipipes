@@ -1,5 +1,6 @@
 import os
 import signal
+from uuid import uuid4
 from multiprocessing import Process
 
 from .exceptions import MaxRequestsException
@@ -12,6 +13,7 @@ class Worker:
         self.manager = manager
         self.daemon = daemon
         self.exit_signal = True
+        self.uuid = uuid4()
 
     def run(self):
         signal.signal(signal.SIGINT, self._stop)
@@ -26,18 +28,17 @@ class Worker:
 
     def send_event(self, event):
         if self.manager:
-            event['pid'] = os.getpid()
+            event['uuid'] = self.uuid
             self.manager.send_event(event)
 
     def start(self):
         self.process = Process(target=self.run)
         self.process.start()
         self.pid = self.process.pid
+        self.exit_signal = False
 
         if self.manager:
-            self.manager.register_worker(self.pid, self)
-
-        self.exit_signal = False
+            self.manager.register_worker(self)
 
     def stop(self):
         """Warning: if `stop` is called just after `start`, the SIGINT
@@ -58,10 +59,13 @@ class Worker:
         self.start()
 
     def join(self, timeout=None):
-        self.process.join(timeout)
+        try:
+            self.process.join(timeout)
+        except AssertionError:
+            pass
 
     def terminate(self):
         self.process.terminate()
 
     def is_alive(self):
-        self.process.is_alive()
+        return self.process.is_alive()

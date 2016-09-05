@@ -11,6 +11,10 @@ class MaxRequestsException(Exception):
     to process."""
 
 
+class ExitTaskException(Exception):
+    """Raised when a task wants to break from an infinite loop."""
+
+
 class TimeoutNotSupportedError(Exception):
     """Raised when a Task is called without any arguments because
     a timeout happened, but the Task doesn't have any default
