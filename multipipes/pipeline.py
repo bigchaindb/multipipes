@@ -14,11 +14,13 @@ def Pipe(maxsize=0):
 
 class Pipeline:
     def __init__(self, items, *,
+                 max_requests=None,
                  manager=None, process_namespace='pipeline'):
 
         self.items = items
         self.events_queue = Pipe()
         self.process_namespace = process_namespace
+        self.max_requests = max_requests
         self.manager = manager
         self.setup()
 
@@ -36,6 +38,7 @@ class Pipeline:
                       if isinstance(item, Node)]
 
         for node in self.nodes:
+            node.set_max_requests(self.max_requests)
             node.process_namespace = self.process_namespace
             node.manager = self.manager
 

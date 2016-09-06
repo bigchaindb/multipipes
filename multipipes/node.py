@@ -54,18 +54,19 @@ class Node:
             self.number_of_processes = 1
 
         self.max_execution_time = max_execution_time
+        self.set_max_requests(max_requests)
+        self.manager = manager
 
+        self.workers = []
+        self.process_namespace = 'pipeline'
+
+    def set_max_requests(self, max_requests=None):
         if max_requests:
             # Add variance to prevent killing all the workers at the same time
             delta = int(max_requests * 0.05)
             self.max_requests = max_requests + randint(-delta, delta)
         else:
             self.max_requests = None
-
-        self.manager = manager
-
-        self.workers = []
-        self.process_namespace = 'pipeline'
 
     def start(self):
         task = Task(target=self.target if self.target else pass_through,

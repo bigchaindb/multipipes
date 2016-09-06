@@ -121,3 +121,6 @@ class Task:
                     self.outdata.put(item)
             else:
                 self.outdata.put(result)
+
+    def stop(self):
+        self.exit_signal = True

@@ -24,7 +24,7 @@ class Worker:
             self.send_event({'type': 'max_requests'})
 
     def _stop(self, signum, frame):
-        self.task.exit_signal = True
+        self.task.stop()
 
     def send_event(self, event):
         if self.manager:
