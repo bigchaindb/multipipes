@@ -15,11 +15,11 @@ def Pipe(maxsize=0):
 class Pipeline:
     def __init__(self, items, *,
                  max_requests=None,
-                 manager=None, process_namespace='pipeline'):
+                 manager=None, namespace='pipeline'):
 
         self.items = items
         self.events_queue = Pipe()
-        self.process_namespace = process_namespace
+        self.namespace = namespace
         self.max_requests = max_requests
         self.manager = manager
         self.setup()
@@ -39,7 +39,7 @@ class Pipeline:
 
         for node in self.nodes:
             node.set_max_requests(self.max_requests)
-            node.process_namespace = self.process_namespace
+            node.namespace = self.namespace
             node.manager = self.manager
 
         self.connect(items_copy, False)

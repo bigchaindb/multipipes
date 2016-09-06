@@ -19,11 +19,17 @@ def _inspect_func(target):
 
 
 class Task:
-    def __init__(self, target, indata=None, outdata=None, *,
+    def __init__(self, target=None, indata=None, outdata=None, *,
                  max_execution_time=None, max_requests=None,
                  timeout=None, polling_timeout=0.5):
         self.target = target
-        self.params_count, self.accept_timeout = _inspect_func(target)
+        if target:
+            self.params_count, self.accept_timeout = _inspect_func(target)
+            self.name = target.__name__
+        else:
+            self.params_count, self.accept_timeout = 0, False
+            self.name = 'unknown'
+
         self.requests_count = 0
 
         self.indata = indata
@@ -57,16 +63,17 @@ class Task:
 
         result = self(*args)
         self.push(result)
+        self.inc()
 
+    def inc(self):
+        self.requests_count += 1
         if self.requests_count == self.max_requests:
             raise MaxRequestsException()
 
     def __call__(self, *args):
         with deadline(self.max_execution_time):
-            result = self.target(*args)
-
-        self.requests_count += 1
-        return result
+            if self.target:
+                return self.target(*args)
 
     def _read_from_indata(self):
         if self.timeout:

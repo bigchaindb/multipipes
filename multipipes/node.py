@@ -22,16 +22,16 @@ def _randomize_max_requests(value, variance=0.05):
 
 class Node:
 
-    def __init__(self, target=None, indata=None, outdata=None, *,
-                 name=None, number_of_processes=None, fraction_of_cores=None,
+    def __init__(self, target_or_task=None, indata=None, outdata=None, *,
+                 number_of_processes=None, fraction_of_cores=None,
                  timeout=None, polling_timeout=0.5,
                  max_execution_time=None, max_requests=None,
-                 manager=None):
+                 namespace='', manager=None):
 
-        self.target = target
+        self.target_or_task = target_or_task
         self.indata = indata
         self.outdata = outdata
-        self.name = name if name else target.__name__
+        # self.name = name if name else target.__name__
         self.timeout = timeout
         self.polling_timeout = polling_timeout
 
@@ -55,6 +55,7 @@ class Node:
 
         self.max_execution_time = max_execution_time
         self.set_max_requests(max_requests)
+        self.namespace = namespace
         self.manager = manager
 
         self.workers = []
@@ -69,14 +70,21 @@ class Node:
             self.max_requests = None
 
     def start(self):
-        task = Task(target=self.target if self.target else pass_through,
-                    indata=self.indata, outdata=self.outdata,
-                    max_execution_time=self.max_execution_time,
-                    max_requests=self.max_requests,
-                    timeout=self.timeout,
-                    polling_timeout=self.polling_timeout)
+        if isinstance(self.target_or_task, Task):
+            task = self.target_or_task
+            task.indata = self.indata
+            task.outdata = self.outdata
+        else:
+            target = self.target_or_task if self.target_or_task else pass_through
+            task = Task(target=target,
+                        indata=self.indata, outdata=self.outdata,
+                        max_execution_time=self.max_execution_time,
+                        max_requests=self.max_requests,
+                        timeout=self.timeout,
+                        polling_timeout=self.polling_timeout)
 
-        self.workers = [Worker(task=task, manager=self.manager)
+        self.workers = [Worker(task=task, manager=self.manager,
+                               namespace=self.namespace)
                         for _ in range(self.number_of_processes)]
 
         for worker in self.workers:

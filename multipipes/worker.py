@@ -3,19 +3,24 @@ import signal
 from uuid import uuid4
 from multiprocessing import Process
 
+from setproctitle import setproctitle
+
 from .exceptions import MaxRequestsException
 
 
 class Worker:
     def __init__(self, task=None, *,
+                 namespace='',
                  manager=None, daemon=None):
         self.task = task
         self.manager = manager
+        self.namespace = namespace
         self.daemon = daemon
         self.exit_signal = True
         self.uuid = uuid4()
 
     def run(self):
+        setproctitle(':'.join([self.namespace, self.task.name]))
         signal.signal(signal.SIGINT, self._stop)
 
         try:

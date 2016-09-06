@@ -12,17 +12,6 @@ def test_task_runs_target_function():
     assert task(2) == 4
 
 
-def test_task_runs_target_function_and_count_requests():
-    from multipipes import Task
-
-    task = Task(double)
-    task(2)
-    task(2)
-    task(2)
-
-    assert task.requests_count == 3
-
-
 def test_task_returns_multiple_elements_when_iterator():
     from multipipes import Task
 
